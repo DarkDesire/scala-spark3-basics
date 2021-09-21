@@ -12,7 +12,6 @@ object SparkSql extends App {
     // only for Spark 2.4 users:
     // .config("spark.sql.legacy.allowCreatingManagedTableUsingNonemptyLocation", "true")
     .getOrCreate()
-  spark.sparkContext.setLogLevel("ERROR")
 
   val carsDF = spark.read
     .option("inferSchema", "true")
@@ -65,11 +64,67 @@ object SparkSql extends App {
     "titles",
     "dept_emp",
     "salaries",
-    "dept_manager")
+    "dept_manager"), shouldWriteToWarehouse = true
   )
 
   // read DF from loaded Spark tables
-  val employeesDF2 = spark.read.table("employees")
-    .show()
+  val employeesDF2 = spark.read.table("employees") // table or view
+  employeesDF2.cache()
+  employeesDF2.show()
+  println("spark.sql")
+  spark.sql("select * from titles limit 20").show() // tempView titles
 
+
+  /**
+    * Exercises
+    *
+    * 1. Read the movies DF and store it as a Spark table in the rtjvm database.
+    * 2. Count how many employees were hired in between Jan 1 1999 and Jan 1 2000.
+    * 3. Show the average salaries for the employees hired in between those dates, grouped by department.
+    * 4. Show the name of the best-paying department for employees hired in between those dates.
+    */
+
+  // 1
+  val moviesDF = spark.read
+    .option("inferSchema", "true")
+    .json("src/main/resources/data/movies.json")
+
+  moviesDF.write
+    .saveAsTable("movies")
+
+  // 2
+  spark.sql(
+    """
+      |select count(*)
+      |from employees
+      |where hire_date > '1999-01-01' and hire_date < '2000-01-01'
+    """.stripMargin
+  ).show()
+
+  // 3
+  spark.sql(
+    """
+      |select de.dept_no, avg(s.salary)
+      |from employees e, dept_emp de, salaries s
+      |where e.hire_date > '1999-01-01' and e.hire_date < '2000-01-01'
+      | and e.emp_no = de.emp_no
+      | and e.emp_no = s.emp_no
+      |group by de.dept_no
+    """.stripMargin
+  ).show()
+
+  // 4
+  spark.sql(
+    """
+      |select avg(s.salary) payments, d.dept_name
+      |from employees e, dept_emp de, salaries s, departments d
+      |where e.hire_date > '1999-01-01' and e.hire_date < '2000-01-01'
+      | and e.emp_no = de.emp_no
+      | and e.emp_no = s.emp_no
+      | and de.dept_no = d.dept_no
+      |group by d.dept_name
+      |order by payments desc
+      |limit 1
+    """.stripMargin
+  ).show()
 }
